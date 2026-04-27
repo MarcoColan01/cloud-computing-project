@@ -1,0 +1,12 @@
+security/*
+!security/generate_certs.sh
+
+.env
+
+scripts/rogue_poller.py
+scripts/rogue_poller_*.py
+
+__pycache__/
+*.pyc
+.venv/
+venv/
