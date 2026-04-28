@@ -89,7 +89,7 @@ def delivery_report(err, msg):
         msg.offset(),
         )
 
-@app.get("healthcheck")
+@app.get("/healthcheck")
 def healthcheck():
     return {"ok":True, "status": "Flight API Producer running..."}
 

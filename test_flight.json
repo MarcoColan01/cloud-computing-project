@@ -1,6 +1,6 @@
 {
   "airport": "AMS",
-  "flight_code": "KL1234",
+  "flight_code": "KL1237",
   "airline_iata": "KL",
   "airline_name": "KLM Royal Dutch Airlines",
   "scheduled_departure": "2026-04-27T15:30:00Z",
@@ -8,8 +8,8 @@
   "delay_minutes": 15,
   "gate": "D7",
   "terminal": "2",
-  "destination_iata": "FCO",
-  "destination_name": "Rome Fiumicino",
+  "destination_iata": "BCN",
+  "destination_name": "Barcelona",
   "status": "BOARDING",
   "aircraft_type": "B737",
   "is_codeshare": false,
