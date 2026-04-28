@@ -1,6 +1,9 @@
-"   HTTP -> Kafka gateway. Receives normalized FlightEvent payloads via
-"   POST /flight and publishes them to the flight.telemetry Kafka topic.
-"
+"""
+
+HTTP -> Kafka gateway. Receives normalized FlightEvent payloads via
+POST /flight and publishes them to the flight.telemetry Kafka topic.
+
+"""
 
 import os 
 import time 
@@ -58,5 +61,67 @@ class FlightEvent(BaseModel):
 def kafka_ssl_base() -> dict:
     cfg = {
         "bootstrap.servers": BOOTSTRAP,
-        "security.protocol": os.get
+        "security.protocol": os.getenv("KAFKA_SECURITY_PROTOCOL", "SSL"),
+        "ssl.ca.location": os.getenv("KAFKA_SSL_CA_LOCATION"),
+        "ssl.certificate.location": os.getenv("KAFKA_SSL_CERTIFICATE_LOCATION"),
+        "ssl.key.location": os.getenv("KAFKA_SSL_KEY_LOCATION"),
+        "acks": "all",
+        "enable.idempotence": True,
+        "max.in.flight.requests.per.connection": 1,
+        "retries": 2147483647,
+        "message.timeout.ms": 120000,
+        "request.timeout.ms": 40000,
+        "compression.type": "gzip",
+        "client.id": "flight-api-producer",
     }
+    return cfg
+
+producer = Producer(kafka_ssl_base())
+
+def delivery_report(err, msg):
+    if err is not None:
+        log.error("Delivery failed for key=%s: %s", msg.key(), err)
+    else:
+        log.info("delivered key=%s to %s[%d]@%d",
+        msg.key().decode() if msg.key() else None,
+        msg.topic(),
+        msg.partition(),
+        msg.offset(),
+        )
+
+@app.get("healthcheck")
+def healthcheck():
+    return {"ok":True, "status": "Flight API Producer running..."}
+
+
+@app.post("/flight")
+def produce_flight(data:FlightEvent):
+    key = f"{data.airport}:{data.flight_code}"
+    payload = data.model_dump_json()
+
+    try:
+        producer.produce(
+            TOPIC,
+            key=key.encode("utf-8"),
+            value=payload.encode("utf-8"),
+            on_delivery=delivery_report,
+        )
+        producer.poll(0)
+
+        return {
+            "status": "queued",
+            "eventId": data.eventId,
+            "key": key,
+            "topic": TOPIC,
+        }
+    except BufferError:
+        raise HTTPException(status_code=503, detail="Producer queue full")
+    except KafkaError as e:
+        raise HTTPException(status_code=500, detail=f"Kafka error: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.on_event("shutdown")
+def shutdown():
+    log.info("Flushing producer before shutdown")
+    producer.flush(timeout=10)
