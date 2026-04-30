@@ -200,7 +200,7 @@ def fetch_window():
             data = fetch_page(page, date_str)
             if not data:
                 break
-            flights = data.get("flgihts") or [] 
+            flights = data.get("flights") or [] 
             if not flights:
                 break
 
