@@ -9,7 +9,8 @@ import os
 import time 
 import logging
 from datetime import datetime 
-from typing import Optional, Literal 
+from typing import Any, Optional, Literal
+
 
 from fastapi import FastAPI, HTTPException 
 from pydantic import BaseModel, Field
@@ -29,6 +30,7 @@ FlightStatus = Literal[
     "DEPARTED", "DELAYED", "CANCELLED", "DIVERTED", "UNKNOWN",
 ]
 ServiceType = Literal["J", "C", "G", "H"]
+EventType = Literal["UPSERT", "DELETE"]
 
 class FlightEvent(BaseModel):
     eventId: str = Field(default_factory=lambda: f"evt-{int(time.time()*1000)}")
@@ -39,11 +41,13 @@ class FlightEvent(BaseModel):
     flight_code: str
     airline_iata: str
     airline_name: str
-
+    event_type: EventType = "UPSERT"
     scheduled_departure: datetime
     estimated_departure: Optional[datetime] = None
     actual_departure: Optional[datetime] = None
     delay_minutes: Optional[int] = None
+    changed_fields: dict[str, dict[str, Any]] = Field(default_factory=dict)
+
 
     gate: Optional[str] = None
     terminal: Optional[str] = None

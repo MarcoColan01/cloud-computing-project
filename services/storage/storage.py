@@ -71,6 +71,35 @@ def upsert_flight(coll, data:dict) -> bool:
     except PyMongoError as e:
         log.error("Mongo insert failed: %s",e)
         return False
+
+def flight_filter(data: dict) -> dict:
+    return {
+        "airport": data["airport"],
+        "scheduled_departure": data["scheduled_departure"],
+        "flight_code": data["flight_code"],
+    }
+
+
+def delete_flight(coll, data: dict) -> bool:
+    try:
+        result = coll.delete_one(flight_filter(data))
+        log.info(
+            "deleted %s:%s scheduled=%s deleted_count=%d",
+            data["airport"],
+            data["flight_code"],
+            data["scheduled_departure"],
+            result.deleted_count,
+        )
+        return True
+    except PyMongoError as e:
+        log.error("Mongo delete failed: %s", e)
+        return False
+
+
+def handle_flight(coll, data: dict) -> bool:
+    if data.get("event_type") == "DELETE":
+        return delete_flight(coll, data)
+    return upsert_flight(coll, data)
     
 def start_storage():
     log.info("Staring storage service...")
@@ -111,7 +140,7 @@ def start_storage():
                 consumer.commit(message=msg, asynchronous=False)
                 continue
 
-            ok = upsert_flight(coll, data)
+            ok = handle_flight(coll, data)
             if ok:
                 consumer.commit(message=msg, asynchronous=False)
             else:
