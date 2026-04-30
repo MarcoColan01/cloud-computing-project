@@ -3,13 +3,13 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from poller import fetch_window, is_codeshare, is_filtered_service, normalize
+from poller import fetch_page_window, is_codeshare, is_filtered_service, normalize
 
 count_total = 0
 count_kept = 0
 shown = 0
 
-for raw in fetch_window():
+for raw in fetch_page_window():
     count_total += 1
     if is_codeshare(raw) or is_filtered_service(raw):
         continue

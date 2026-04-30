@@ -51,7 +51,7 @@ SCHIPHOL_STATUS_MAP = {
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s %(message)s]")
 log = logging.getLogger("schiphol-poller")
 
-def fetch_page(page:int, schedule_date:str) -> Optional[dict]:
+def fetch_page(page: int, schedule_date: str) -> Optional[dict]:
     headers = {
         "Accept": "application/json",
         "ResourceVersion": RESOURCE_VERSION,
@@ -62,24 +62,24 @@ def fetch_page(page:int, schedule_date:str) -> Optional[dict]:
         "flightDirection": "D",
         "scheduleDate": schedule_date,
         "includedelays": "true",
-        "sort": "+scheduleTime",
+        "sort": "-scheduleTime",   # decrescente: voli serali per primi
         "page": page,
     }
     try:
-        r = requests.get(SCHIPHOL_BASE, headers = headers, params=params, timeout=15)
+        r = requests.get(SCHIPHOL_BASE, headers=headers, params=params, timeout=15)
     except requests.RequestException as e:
         log.error("Schiphol request failed: %s", e)
         return None
-    
+
     if r.status_code == 429:
-        log.warning("SChiphol rate limit hit")
+        log.warning("Schiphol rate limit hit")
         time.sleep(30)
         return None
-    
-    if r.status_code == 400:
-        log.error("SChiphol API error %d: %s", r.status_code, r.text[:200])
-        return None 
-    
+
+    if r.status_code >= 400:
+        log.error("Schiphol API error %d: %s", r.status_code, r.text[:200])
+        return None
+
     try:
         return r.json()
     except ValueError as e:
@@ -90,7 +90,7 @@ def is_codeshare(raw: dict) -> bool:
     return raw.get("mainFlight") and raw.get("mainFlight") != raw.get("flightName")
     
 def is_filtered_service(raw: dict) -> bool:
-    st = (raw.get("serviceType") or "").upper()
+    st = (raw.get("serviceType") or "J").upper()
     return st in ("C", "G", "H")
 
 def map_status(raw: dict) -> str:
@@ -189,10 +189,28 @@ def forward(event: FlightEvent) -> bool:
         log.error("API-producer unreachable: %s", e)
         return False
 
+try:
+    from zoneinfo import ZoneInfo
+    TZ_AMS = ZoneInfo("Europe/Amsterdam")
+except ImportError:
+    from datetime import timezone as _tz
+    TZ_AMS = _tz(timedelta(hours=2))  # fallback: CEST
+
+
 def fetch_window():
-    now = datetime.now(timezone.utc)
-    horizon = now + timedelta(hours=LOOK_AHEAD_HOURS)
-    days_to_fetch = sorted({now.date(), horizon.date()})
+    """
+    Stream forward-looking departures.
+
+    Strategy: for each relevant day, request pages sorted by scheduleTime
+    DESCENDING. Schiphol returns evening flights first, morning flights
+    last. We yield every page and stop as soon as a page contains only
+    flights that are already in the past — going further would just
+    return older flights we don't care about.
+    """
+    now_utc = datetime.now(timezone.utc)
+    horizon = now_utc + timedelta(hours=LOOK_AHEAD_HOURS)
+    cutoff = now_utc - timedelta(minutes=30)  # tolerate just-departed flights
+    days_to_fetch = sorted({now_utc.date(), horizon.date()})
 
     for day in days_to_fetch:
         date_str = day.strftime("%Y-%m-%d")
@@ -200,12 +218,31 @@ def fetch_window():
             data = fetch_page(page, date_str)
             if not data:
                 break
-            flights = data.get("flights") or [] 
+
+            flights = data.get("flights")
+            if flights is None:
+                log.error("Schiphol response has no 'flights' key. Top-level keys: %s",
+                          list(data.keys()))
+                break
             if not flights:
                 break
 
             log.info("Page %d for %s: %d raw flights", page, date_str, len(flights))
             yield from flights
+
+            # Early exit: with sort=-scheduleTime, the LAST flight of a page is
+            # the earliest in time. If even that is already past our cutoff,
+            # the next pages will be older still — no point fetching them.
+            last_sched = flights[-1].get("scheduleDateTime")
+            if last_sched:
+                try:
+                    last_dt = datetime.fromisoformat(last_sched.replace("Z", "+00:00"))
+                    if last_dt < cutoff:
+                        log.info("Page %d already past cutoff (%s) — stopping pagination",
+                                 page, last_dt.isoformat())
+                        break
+                except ValueError:
+                    pass
 
             if len(flights) < 20:
                 break
