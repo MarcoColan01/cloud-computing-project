@@ -213,3 +213,64 @@ if operational:
             print(f"  {tag:<15} text={child.text!r}  attribs={child.attrib}")
         else:
             print(f"  {tag:<15} = {child.text!r}")
+
+
+
+"""
+ESEMPIO DI OUTPUT
+
+Finestra: 16:00–17:00 Oslo  (2026-04-30)
+
+→ GET https://asrv.avinor.no/XmlFeed/v1.0
+  params: {'airport': 'OSL', 'direction': 'D', 'TimeFrom': 12, 'TimeTo': 12, 'codeshare': 'Y'}
+
+Content-Type: application/xml;charset=iso-8859-1
+Voli grezzi (fascia ±12h): 331
+Nella fascia 10:00–14:00 Oslo: 27
+Voli operativi: 27
+
+Volo       AL  Sched  Dest   Via  Gate  Chk  DI  Status               Delay
+──────────────────────────────────────────────────────────────────────────────────
+D83229     D8  16:00   CPH     -   E13  1-3   S  Delayed                +0m
+SK459      SK  16:00   CPH     -    D2  4-7   S  Delayed                +0m
+DY430      DY  16:10   MOL     -    C6  1-3   D  Delayed                +0m
+SK273      SK  16:10   BGO     -    C1  4-7   D  Delayed                +0m
+SK882      SK  16:10   ARN     -    E2  4-7   S  Delayed                +0m
+DX576      DX  16:15   FRO     -   A25  1-3   D  Delayed                +0m
+DY538      DY  16:20   SVG     -   A20  1-3   D  Delayed                +0m
+DY620      DY  16:20   BGO     -    A6  1-3   D  Delayed                +0m
+DY760      DY  16:20   TRD     -   A19  1-3   D  Delayed                +0m
+SK362      SK  16:20   TRD     -    C3  4-7   D  Delayed                +0m
+SK4039     SK  16:20   SVG     -   A12  4-7   D  Delayed                +0m
+D84110     D8  16:30   ARN     -   E11  1-3   S  Delayed                +0m
+DY190      DY  16:30   HAU     -    C4  1-3   D  Delayed                +0m
+FI323      FI  16:30   KEF     -    E9  1-3   S  Scheduled                -
+SK827      SK  16:30   AMS     -   E12  4-7   S  Delayed                +0m
+DY1362     DY  16:35   DUB     -   F32  1-3   I  Delayed                +0m
+WF148      WF  16:40   OSL  SDN,SOG   A27  1-3   D  Delayed                +0m
+WF158      WF  16:40   BGO  HOV,SOG   A23  1-3   D  Delayed                +0m
+DY1872     DY  16:45   FCO     -    D8  1-3   S  Delayed                +0m
+LH863      LH  16:45   FRA     -   D11  4-7   S  Delayed                +0m
+SK4424     SK  16:50   TOS     -   A10  4-7   D  Scheduled                -
+SK884      SK  16:55   ARN     -   D10  4-7   S  Scheduled                -
+DY276      DY  17:00   KRS     -    C7  1-3   D  Delayed                +0m
+DY622      DY  17:00   BGO     -    C2  1-3   D  Delayed                +0m
+DY762      DY  17:00   TRD     -    A2  1-3   D  Delayed                +0m
+SK277      SK  17:00   BGO     -    C9  4-7   D  Scheduled                -
+SK364      SK  17:00   TRD     -    C5  4-7   D  Scheduled                -
+
+=== CAMPI del primo volo operativo ===
+  uniqueID : 729846349
+  airline         = 'D8'
+  flight_id       = 'D83229'
+  dom_int         = 'S'
+  schedule_time   = '2026-04-30T14:00:00Z'
+  arr_dep         = 'D'
+  airport         = 'CPH'
+  check_in        = '1-3'
+  gate            = 'E13'
+  status          text=None  attribs={'code': 'E', 'time': '2026-04-30T14:00:00Z'}
+
+
+
+"""

@@ -206,3 +206,118 @@ if codeshared:
     for child in codeshared[0]:
         tag = child.tag.replace(f"{{{NS}}}", "")
         print(f"  {tag:<14} = {child.text!r}")
+
+
+"""
+ESEMPIO DI OUTPUT
+
+Finestra: 15:00–17:00 Helsinki  (2026-04-30)
+
+→ GET https://apigw.finavia.fi/flights/public/v0/flights/dep/HEL
+
+Content-Type: application/xml
+Voli grezzi da HEL (tutti gli orari): 304
+Nella fascia 10:00–14:00: 51
+Operativi: 51   Codeshare filtrati: 0
+
+Volo       Sched  Dest  Destinazione            Gate  Status           Delay  Board  Final
+────────────────────────────────────────────────────────────────────────────────────────────
+FI343      15:00   KEF  Reykjavik                 18  -                    -    -      -  
+AY1023     15:15   TLL  Tallinn                   11  -                    -    -      -  
+AY315      15:30   VAA  Vaasa                     10  -                    -    -      -  
+AY1763     15:35   FCO  Rome                      17  -                    -    -      -  
+AY959      15:35   CPH  Copenhagen                19  -                    -    -      -  
+AY1847     15:35   TIA  Tirana                   51B  -                    -    -      -  
+AY593      15:40   KTT  Kittilä                    9  -                    -    -      -  
+BT304      15:40   RIX  Riga                      15  -                    -    -      -  
+D82802     15:45   NCE  Nice                     31E  -                    -    -      -  
+PC1312     15:45   SAW  Istanbul Sabiha Gökçen    49  -                    -    -      -  
+AY1863     15:45   RHO  Rhodos                    28  -                    -    -      -  
+AY1019     15:45   TLL  Tallinn                  31C  -                    -    -      -  
+FR2345     15:50   STN  London Stansted           47  -                    -    -      -  
+AY1859     15:50   CHQ  Chania                   31D  -                    -    -      -  
+AY441      15:55   OUL  Oulu                      26  -                    -    -      -  
+AY1603     15:55   NCE  Nice                      30  -                    -    -      -  
+AY813      15:55   ARN  Stockholm Arlanda         24  -                    -    -      -  
+AY535      16:00   RVN  Rovaniemi                23A  -                    -    -      -  
+AY1337     16:00   LHR  London Heathrow           42  -                    -    -      -  
+SK1713     16:00   CPH  Copenhagen                14  -                    -    -      -  
+AY1365     16:05   MAN  Manchester               51D  -                    -    -      -  
+AY001      16:05   LAX  Los Angeles               44  -                    -    -      -  
+D82894     16:05   PMI  Palma de Mallorca         16  -                    -    -      -  
+AY1533     16:05   GVA  Geneva                    34  -                    -    -      -  
+AY1075     16:05   RIX  Riga                     20A  -                    -    -      -  
+AY915      16:10   OSL  Oslo                     34A  -                    -    -      -  
+AY1577     16:10   CDG  Paris Charles de Gaull    29  -                    -    -      -  
+AY369      16:15   KUO  Kuopio                   31C  -                    -    -      -  
+AY1405     16:15   MUC  Munich                   31E  -                    -    -      -  
+AY1105     16:15   VNO  Vilnius                  31B  -                    -    -      -  
+AY865      16:15   GOT  Gothenburg                36  -                    -    -      -  
+AY1803     16:20   VRN  Verona                    18  -                    -    -      -  
+AY1255     16:20   BUD  Budapest                 23B  -                    -    -      -  
+AY1435     16:20   BER  Berlin                    25  -                    -    -      -  
+AY7055     16:20   LIN  Milan Linate              20  -                    -    -      -  
+AY1021     16:25   TLL  Tallinn                   11  -                    -    -      -  
+AY009      16:25   ORD  Chicago                   54  -                    -    -      -  
+SK711      16:30   ARN  Stockholm Arlanda        19A  -                    -    -      -  
+AY1783     16:30   VCE  Venice                    21  -                    -    -      -  
+AY1425     16:30   HAM  Hamburg                  31D  -                    -    -      -  
+AY1513     16:30   ZRH  Zurich                   36A  -                    -    -      -  
+AY1395     16:35   DUS  Dusseldorf               23A  -                    -    -      -  
+AY1305     16:40   AMS  Amsterdam                 35  -                    -    -      -  
+AY1661     16:40   MAD  Madrid                    13  -                    -    -      -  
+HO1608     16:45   PVG  Shanghai                  43  -                    -    -      -  
+RP655      16:45   SVL  Savonlinna               17A  -                    -    -      -  
+AY1545     16:45   BRU  Brussels Zaventem        31E  -                    -    -      -  
+AY443      16:50   OUL  Oulu                      23  -                    -    -      -  
+AY815      16:55   ARN  Stockholm Arlanda         27  -                    -    -      -  
+AY1475     16:55   VIE  Vienna                    22  -                    -    -      -  
+AY1415     16:55   FRA  Frankfurt                 19  -                    -    -      -  
+
+=== CAMPI del primo volo operativo ===
+  h_apt          = 'HEL'
+  fltnr          = 'FI343'
+  sdt            = '2026-04-30T12:00:00Z'
+  sdate          = '20260430'
+  acreg          = 'TFICC'
+  actype         = '7M9'
+  mfltnr         = None
+  cflight_1      = 'AY6817'
+  cflight_2      = None
+  cflight_3      = None
+  cflight_4      = None
+  cflight_5      = None
+  cflight_6      = None
+  route_1        = 'KEF'
+  route_2        = None
+  route_3        = None
+  route_4        = None
+  route_n_1      = 'Reykjavik'
+  route_n_2      = None
+  route_n_3      = None
+  route_n_4      = None
+  route_n_fi_1   = 'Reykjavik'
+  route_n_fi_2   = None
+  route_n_fi_3   = None
+  route_n_fi_4   = None
+  chkarea        = '300'
+  chkdsk_1       = '306'
+  chkdsk_2       = '307'
+  calls_1        = None
+  calls_2        = None
+  calls_3        = None
+  calls_4        = None
+  park           = '18'
+  park_prv       = None
+  gate           = '18'
+  gate_prv       = None
+  prm            = None
+  prt            = None
+  prt_f          = None
+  prt_s          = None
+  est_d          = None
+  pest_d         = None
+  act_d          = None
+  ablk_d         = None
+  callsign       = 'ICE343'
+"""
