@@ -4,10 +4,10 @@ import time
 import logging
 import signal
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timezone, time as dtime
 from typing import Optional
 
-from confluent_kafka import Consumer, Producer, KafkaException
+from confluent_kafka import Consumer, Producer, KafkaException, TopicPartition
 
 
 BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "kafka-1:9093,kafka-2:9095,kafka-3:9097")
@@ -16,9 +16,14 @@ TOPIC_OUT = os.getenv("TOPIC_STATS", "flight.stats")
 GROUP_ID = os.getenv("GROUP_ID", "stats-aggregator-group")
 PUBLISH_INTERVAL = int(os.getenv("PUBLISH_INTERVAL_SEC", "10"))
 
+if not GROUP_ID or not GROUP_ID.strip():
+    raise RuntimeError(
+        "GROUP_ID env var is empty or not set. "
+        "Check docker-compose.yml environment section."
+    )
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("stats-aggregator")
-
 
 
 def kafka_ssl_base() -> dict:
@@ -37,25 +42,61 @@ def kafka_ssl_base() -> dict:
     }
 
 
+def seek_to_start_of_today_utc(consumer: Consumer, topic: str, timeout: float = 15.0) -> None:
+    """
+    Force the consumer to (re)read from 00:00 UTC of the current day.
+
+    Why: stats are per-day. If the service restarts mid-day, we want to
+    rebuild the in-memory counters from the same point so that the
+    published stats stay consistent. We override whatever offset was
+    previously committed for this group.
+    """
+    log.info("Waiting for partition assignment on %s ...", topic)
+    deadline = time.time() + timeout
+    while not consumer.assignment() and time.time() < deadline:
+        consumer.poll(0.5)
+
+    parts = consumer.assignment()
+    if not parts:
+        log.warning("No partitions assigned within %.1fs; skipping seek", timeout)
+        return
+
+    # 00:00 UTC of today in milliseconds since epoch
+    today = datetime.now(timezone.utc).date()
+    start_of_day = datetime.combine(today, dtime.min, tzinfo=timezone.utc)
+    timestamp_ms = int(start_of_day.timestamp() * 1000)
+
+    # Ask Kafka for the offset corresponding to that timestamp on each partition
+    query = [TopicPartition(p.topic, p.partition, timestamp_ms) for p in parts]
+    resolved = consumer.offsets_for_times(query, timeout=timeout)
+
+    for tp in resolved:
+        if tp.offset < 0:
+            # No messages at or after midnight — seek to end (nothing to replay)
+            log.info("No messages since %s on %s[%d] — seeking to end",
+                     start_of_day.isoformat(), tp.topic, tp.partition)
+            continue
+        consumer.seek(tp)
+        log.info("Seeked %s[%d] to offset %d (%s UTC)",
+                 tp.topic, tp.partition, tp.offset, start_of_day.isoformat())
+
+
 class StatsState:
     """
     Per-airport rolling counters for the current UTC day.
 
-    Structure:
+    Internal structure per airport:
         {
-            "AMS": {
-                "departed_keys": {(flight_code, scheduled_departure), ...},
-                "delay_sum": int,
-                "delay_count": int,
-            },
-            ...
+            "departed_keys": set of (flight_code, scheduled_departure),
+            "delay_sum":     int   (sum of delay_minutes for departed flights),
+            "delay_count":   int   (flights with a numeric delay_minutes),
         }
     """
 
     def __init__(self):
         self._lock = threading.Lock()
         self._airports: dict = {}
-        self._current_day: Optional[str] = None  
+        self._current_day: Optional[str] = None  # ISO date, e.g. "2026-05-02"
 
     def _airport_bucket(self, airport: str) -> dict:
         return self._airports.setdefault(airport, {
@@ -65,12 +106,12 @@ class StatsState:
         })
 
     def _maybe_rollover(self, today_utc: str) -> None:
-        """Reset all counters if the UTC day has changed since last update."""
+        """Reset all counters when the UTC day changes."""
         if self._current_day is None:
             self._current_day = today_utc
             return
         if today_utc != self._current_day:
-            log.info("UTC day rollover %s -> %s, resetting counters",
+            log.info("UTC day rollover %s → %s, resetting counters",
                      self._current_day, today_utc)
             self._airports.clear()
             self._current_day = today_utc
@@ -88,6 +129,8 @@ class StatsState:
 
             bucket = self._airport_bucket(airport)
             key = (event.get("flight_code"), event.get("scheduled_departure"))
+
+            # Idempotency: same flight seen twice does not double-count
             if key in bucket["departed_keys"]:
                 return
             bucket["departed_keys"].add(key)
@@ -98,7 +141,7 @@ class StatsState:
                 bucket["delay_count"] += 1
 
     def snapshot(self) -> list[dict]:
-        """Return a list of stat messages, one per airport currently tracked."""
+        """Return one stats dict per airport currently tracked."""
         out = []
         with self._lock:
             today_utc = datetime.now(timezone.utc).date().isoformat()
@@ -124,6 +167,7 @@ def publish_loop(state: StatsState, producer: Producer, stop: threading.Event) -
     """Background loop: every PUBLISH_INTERVAL seconds emit a stats snapshot."""
     log.info("Publisher thread started, interval=%ds", PUBLISH_INTERVAL)
     while not stop.is_set():
+        # Wait first, then publish — avoids an empty burst right at boot
         if stop.wait(PUBLISH_INTERVAL):
             break
 
@@ -143,12 +187,16 @@ def publish_loop(state: StatsState, producer: Producer, stop: threading.Event) -
                 log.warning("Producer queue full while publishing %s stats", snap["airport"])
             except KafkaException as e:
                 log.error("Failed to publish stats for %s: %s", snap["airport"], e)
-        producer.poll(0)
-        log.info("Published stats for %d airport(s): %s",
-                 len(snapshots),
-                 ", ".join(f"{s['airport']}=dep:{s['departed_today']},"
-                           f"avg:{s['avg_delay_minutes']}" for s in snapshots))
 
+        producer.poll(0)
+        log.info(
+            "Published stats for %d airport(s): %s",
+            len(snapshots),
+            ", ".join(
+                f"{s['airport']}=dep:{s['departed_today']},avg:{s['avg_delay_minutes']}"
+                for s in snapshots
+            ),
+        )
 
 def start_stats_aggregator():
     log.info("Starting stats-aggregator")
@@ -162,6 +210,10 @@ def start_stats_aggregator():
         "client.id": "flight-stats-aggregator-consumer",
     })
     consumer.subscribe([TOPIC_IN])
+
+    # Seek to 00:00 UTC today so daily stats are always rebuilt from a
+    # consistent baseline, even after a mid-day restart.
+    seek_to_start_of_today_utc(consumer, TOPIC_IN)
 
     producer = Producer({
         **kafka_ssl_base(),
@@ -200,7 +252,7 @@ def start_stats_aggregator():
             try:
                 event = json.loads(msg.value().decode("utf-8"))
             except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                log.error("Malformed message at offset %d: %s, skipping", msg.offset(), e)
+                log.error("Malformed message at offset %d: %s — skipping", msg.offset(), e)
                 consumer.commit(message=msg, asynchronous=False)
                 continue
 
@@ -219,3 +271,6 @@ def start_stats_aggregator():
 
 if __name__ == "__main__":
     start_stats_aggregator()
+
+
+    
