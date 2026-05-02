@@ -7,6 +7,7 @@ import sys
 from confluent_kafka import Consumer, KafkaException
 from pymongo import MongoClient, ASCENDING 
 from pymongo.errors import PyMongoError 
+from datetime import datetime
 
 BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "kafka-1:9093,kafka-2:9095,kafka-3:9097")
 TOPIC = os.getenv("TOPIC_TELEMETRY", "flight.telemetry")
@@ -43,10 +44,24 @@ def setup_mongo():
         unique=True,
         name="uniq_flight_event",
     )
+    coll.create_index(
+    [("scheduled_departure_dt", ASCENDING)],
+    expireAfterSeconds=24 * 3600,
+    name="ttl_flight_24h",
+)
     log.info("Mongo connected: db=%s collection=%s", DB_NAME, COLLECTION_NAME)
     return client, coll 
 
 def upsert_flight(coll, data:dict) -> bool:
+    sched = data.get("scheduled_departure")
+    if sched:
+        try:
+            # store an extra field as native BSON Date for TTL to work
+            update["$set"]["scheduled_departure_dt"] = datetime.fromisoformat(
+                sched.replace("Z", "+00:00")
+            )
+        except ValueError:
+            pass
     flight = {
         "airport": data["airport"],
         "scheduled_departure": data["scheduled_departure"],
