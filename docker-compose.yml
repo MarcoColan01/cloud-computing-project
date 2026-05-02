@@ -200,6 +200,29 @@ services:
       - ./security:/app/security:ro
     networks:
       - flight-net
+  
+  
+  stats-aggregator:
+    build: ./services/stats-aggregator
+    restart: on-failure
+    depends_on:
+      kafka-1: { condition: service_healthy }
+      kafka-2: { condition: service_healthy }
+      kafka-3: { condition: service_healthy }
+    environment:
+      KAFKA_BOOTSTRAP: kafka-1:9093,kafka-2:9095,kafka-3:9097
+      TOPIC_TELEMETRY: flight.telemetry
+      TOPIC_STATS: flight.stats
+      GROUP_ID: stats-aggregator-group
+      PUBLISH_INTERVAL_SEC: 10
+      KAFKA_SECURITY_PROTOCOL: SSL
+      KAFKA_SSL_CA_LOCATION: /app/security/ca.crt
+      KAFKA_SSL_CERTIFICATE_LOCATION: /app/security/client-creds/kafka.client.certificate.pem
+      KAFKA_SSL_KEY_LOCATION: /app/security/client-creds/kafka.client.key
+    volumes:
+      - ./security:/app/security:ro
+    networks:
+      - flight-net
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
