@@ -52,25 +52,28 @@ def setup_mongo():
     log.info("Mongo connected: db=%s collection=%s", DB_NAME, COLLECTION_NAME)
     return client, coll 
 
-def upsert_flight(coll, data:dict) -> bool:
-    sched = data.get("scheduled_departure")
-    if sched:
-        try:
-            # store an extra field as native BSON Date for TTL to work
-            update["$set"]["scheduled_departure_dt"] = datetime.fromisoformat(
-                sched.replace("Z", "+00:00")
-            )
-        except ValueError:
-            pass
+def upsert_flight(coll, data: dict) -> bool:
     flight = {
         "airport": data["airport"],
         "scheduled_departure": data["scheduled_departure"],
         "flight_code": data["flight_code"],
     }
     update = {
-        "$set": data,
+        "$set": dict(data),  # copy: we may add a derived field below
         "$setOnInsert": {"first_seen_ts": data.get("ts")},
     }
+
+    # Add a native BSON Date field so the TTL index can expire old docs.
+    # Mongo TTL only works on Date fields, not on ISO 8601 strings.
+    sched = data.get("scheduled_departure")
+    if sched:
+        try:
+            update["$set"]["scheduled_departure_dt"] = datetime.fromisoformat(
+                sched.replace("Z", "+00:00")
+            )
+        except ValueError:
+            pass
+
     try:
         result = coll.update_one(flight, update, upsert=True)
         action = "inserted" if result.upserted_id else "updated"
@@ -82,9 +85,9 @@ def upsert_flight(coll, data:dict) -> bool:
             data.get("status"),
             data.get("gate"),
         )
-        return True 
+        return True
     except PyMongoError as e:
-        log.error("Mongo insert failed: %s",e)
+        log.error("Mongo insert failed: %s", e)
         return False
 
 def flight_filter(data: dict) -> dict:

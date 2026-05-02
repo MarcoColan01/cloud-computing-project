@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aeronode / Departures Inspection</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="{{ url_for('static', filename='script.js') }}" defer></script>
+</head>
+<body>
+    <header class="topbar">
+        <div class="brand">
+            <div class="brand-icon">✈</div>
+            <div class="brand-text">
+                <div class="brand-title">AERONODE / Departures Inspection</div>
+                <div class="brand-subtitle">MULTI-HUB LIVE BOARD &nbsp;·&nbsp; AMS &nbsp;·&nbsp; HEL &nbsp;·&nbsp; OSL</div>
+            </div>
+        </div>
+        <div class="clock">
+            <div class="clock-date" id="clock-date">—</div>
+            <div class="clock-time" id="clock-time">— UTC</div>
+        </div>
+    </header>
+
+    <main id="boards" class="boards">
+        {% for airport in airports %}
+        <section class="board" id="board-{{ airport }}" data-airport="{{ airport }}">
+            <div class="board-head">
+                <div class="board-title">
+                    <span class="status-dot" id="dot-{{ airport }}"></span>
+                    <span class="iata">{{ airport }}</span>
+                    <span class="airport-full" id="full-{{ airport }}">—</span>
+                </div>
+                <div class="board-clock">
+                    <span class="live-tag">● LIVE</span>
+                    <span class="board-time" id="time-{{ airport }}">—</span>
+                </div>
+            </div>
+
+            <div class="board-meta">DEPARTURES &nbsp;·&nbsp; <span id="meta-city-{{ airport }}">—</span></div>
+
+            <div class="stats-row">
+                <div class="stat">
+                    <div class="stat-label">✈ DEPARTED TODAY</div>
+                    <div class="stat-value" id="stat-departed-{{ airport }}">—</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">⌛ AVG DAILY DELAY</div>
+                    <div class="stat-value">
+                        <span id="stat-delay-{{ airport }}">—</span><span class="stat-unit">min</span>
+                    </div>
+                </div>
+            </div>
+
+            <table class="flights">
+                <thead>
+                    <tr>
+                        <th>AIRLINE</th>
+                        <th>FLIGHT</th>
+                        <th>DESTINATION</th>
+                        <th>SCHED</th>
+                        <th>EST</th>
+                        <th>GATE</th>
+                        <th>INFO</th>
+                    </tr>
+                </thead>
+                <tbody id="flights-{{ airport }}">
+                    <tr class="empty"><td colspan="7">Awaiting data…</td></tr>
+                </tbody>
+            </table>
+
+            <div class="board-foot">
+                <span>{{ airport }}</span>
+                <span>·</span>
+                <span>DEPARTURES BOARD</span>
+                <span>·</span>
+                <span>AUTO-REFRESH</span>
+            </div>
+        </section>
+        {% endfor %}
+    </main>
+</body>
+</html>

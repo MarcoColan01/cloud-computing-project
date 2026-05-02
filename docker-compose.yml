@@ -223,6 +223,35 @@ services:
       - ./security:/app/security:ro
     networks:
       - flight-net
+  
+  
+  dashboard:
+    build: ./services/dashboard
+    restart: on-failure
+    ports:
+      - "8500:8500"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8500/healthcheck')\" || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      kafka-1: { condition: service_healthy }
+      kafka-2: { condition: service_healthy }
+      kafka-3: { condition: service_healthy }
+    environment:
+      KAFKA_BOOTSTRAP: kafka-1:9093,kafka-2:9095,kafka-3:9097
+      TOPIC_TELEMETRY: flight.telemetry
+      TOPIC_STATS: flight.stats
+      KAFKA_SECURITY_PROTOCOL: SSL
+      KAFKA_SSL_CA_LOCATION: /app/security/ca.crt
+      KAFKA_SSL_CERTIFICATE_LOCATION: /app/security/client-creds/kafka.client.certificate.pem
+      KAFKA_SSL_KEY_LOCATION: /app/security/client-creds/kafka.client.key
+    volumes:
+      - ./security:/app/security:ro
+    networks:
+      - flight-net
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
