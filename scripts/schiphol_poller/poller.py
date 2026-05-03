@@ -1,4 +1,4 @@
-import json, logging, os, sys, time
+import logging, os, sys, time
 from dataclasses import fields, is_dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -21,12 +21,10 @@ if not (APP_ID := ENV("SCHIPHOL_APP_ID")) or not (APP_KEY := ENV("SCHIPHOL_APP_K
 
 API_URL, POLL_INT = ENV("API_PRODUCER_URL", "http://127.0.0.1:8000/flight"), int(ENV("POLL_INTERVAL", "60"))
 LOOK_AHEAD, MAX_PAGES, BOARD_SIZE = int(ENV("LOOK_AHEAD_HOURS", "8")), int(ENV("MAX_PAGES", "10")), int(ENV("BOARD_SIZE", "20"))
-GRACE_MIN, RETENTION_H = int(ENV("MISSING_GRACE_MINUTES", "10")), int(ENV("POLLER_STATE_RETENTION_HOURS", "36"))
-STATE_FILE = Path(ENV("POLLER_STATE_FILE", HERE.parent.parent / ".poller_state" / "schiphol_ams_state.json"))
+GRACE_MIN = int(ENV("MISSING_GRACE_MINUTES", "10"))
 TZ = ZoneInfo("Europe/Amsterdam") if hasattr(ZoneInfo, "__call__") else ZoneInfo(timedelta(hours=2))
 
 STATUS_MAP = {"SCH": "SCHEDULED", "AIR": "DEPARTED", "DEP": "DEPARTED", "DEL": "DELAYED", "WIL": "BOARDING", "BRD": "BOARDING", "GCH": "GATE_OPEN", "GTO": "GATE_OPEN", "GCL": "GATE_CLOSED", "GTD": "GATE_CLOSED", "TOM": "SCHEDULED", "CNX": "CANCELLED", "DIV": "DIVERTED"}
-MONITORED = ("airport", "flight_code", "airline_iata", "airline_name", "scheduled_departure", "estimated_departure", "actual_departure", "delay_minutes", "gate", "terminal", "destination_iata", "destination_name", "status", "aircraft_type", "is_codeshare", "is_cargo", "service_type")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("schiphol-poller")
@@ -34,10 +32,6 @@ log = logging.getLogger("schiphol-poller")
 def dt_parse(val): return datetime.fromisoformat(val.replace("Z", "+00:00")).astimezone(TZ) if val else None
 def dt_fmt(dt): return dt.astimezone(TZ).replace(tzinfo=None).isoformat(timespec="seconds")
 def now(): return datetime.now(TZ).replace(microsecond=0)
-
-def load_state():
-    try: return json.loads(STATE_FILE.read_text("utf-8")) if STATE_FILE.exists() else {"version": 1, "last_sent": {}}
-    except Exception: return {"version": 1, "last_sent": {}}
 
 def fetch_flights(start, end):
     res_list = []
@@ -54,10 +48,10 @@ def fetch_flights(start, end):
 def parse_flight(r):
     code, main_flight, service = str(r.get("flightName", "")).strip(), r.get("mainFlight"), str(r.get("serviceType", "J")).upper()
     if not code or r.get("scheduleDateTime") is None or (main_flight and main_flight != code) or service != "J": return None
-    
+
     sched, act, est = dt_parse(r.get("scheduleDateTime")), dt_parse(r.get("actualOffBlockTime")), dt_parse(r.get("publicEstimatedOffBlockTime"))
     est = act or est
-    
+
     kw = dict(airport="AMS", flight_code=code, airline_iata=(r.get("prefixIATA") or "").strip(), airline_name=(r.get("prefixIATA") or "").strip(),
         scheduled_departure=sched.isoformat("T", "seconds"), estimated_departure=est.isoformat("T", "seconds") if est else None,
         actual_departure=act.isoformat("T", "seconds") if act else None, delay_minutes=int((est - sched).total_seconds() / 60) if sched and est else None,
@@ -65,22 +59,19 @@ def parse_flight(r):
         destination_iata=(r.get("route", {}).get("destinations") or [""])[0], destination_name="", service_type=service,
         status="DEPARTED" if act else next((STATUS_MAP[s] for s in reversed((r.get("publicFlightState") or {}).get("flightStates", [])) if s in STATUS_MAP), "UNKNOWN"),
         aircraft_type=r.get("aircraftType", {}).get("iataSub") or r.get("aircraftType", {}).get("iataMain"), is_codeshare=False, is_cargo=False)
-    
+
     ev = FlightEvent(**{k: v for k, v in kw.items() if k in {f.name for f in fields(FlightEvent)}} if is_dataclass(FlightEvent) else kw)
     for k, v in kw.items(): setattr(ev, k, v)
     return ev
 
 def run():
     log.info(f"Starting Schiphol poller. API: {API_URL}")
-    state, tracked = load_state(), {}
+    tracked = {}
 
     while True:
-        t0, ref_now, ls = time.time(), now(), state.setdefault("last_sent", {})
+        t0, ref_now = time.time(), now()
         horizon = ref_now + timedelta(hours=LOOK_AHEAD)
-        metrics = dict(sent=0, fail=0, skip=0, deleted=0, updated=0, added=0)
-
-        for k in list(ls):  # Prune old state
-            if not isinstance(ls[k], dict) or dt_parse(ls[k].get("scheduled_departure")) < ref_now - timedelta(hours=RETENTION_H): del ls[k]
+        metrics = dict(sent=0, fail=0, deleted=0, updated=0, added=0)
 
         fetch_start = min([dt_parse(e.scheduled_departure) for e in tracked.values()] + [ref_now]) - timedelta(minutes=5) if tracked else ref_now
         cands = { (ev.flight_code, ev.scheduled_departure): ev for r in fetch_flights(fetch_start, horizon) if (ev := parse_flight(r)) }
@@ -104,24 +95,15 @@ def run():
                 ev.event_type = "UPSERT"; tracked[k] = ev; consider.append(ev); metrics["added"] += 1
 
         for ev in consider:
-            pld = ev.to_dict(); pld["event_type"] = getattr(ev, "event_type", "UPSERT")
-            curr_cmp = {f: pld.get(f) for f in MONITORED} | {"event_type": pld["event_type"]}
-            key = f"{pld['airport']}:{pld['flight_code']}:{pld['scheduled_departure']}"
-            prev_cmp = ls.get(key) if isinstance(ls.get(key), dict) else None
-
-            diff = {"_created": {"old": None, "new": True}} if not prev_cmp else {f: {"old": prev_cmp.get(f), "new": curr_cmp.get(f)} for f in curr_cmp.keys() | prev_cmp.keys() if prev_cmp.get(f) != curr_cmp.get(f)}
-            if not diff: metrics["skip"] += 1; continue
-
-            pld["changed_fields"] = diff
+            pld = ev.to_dict()
+            pld["event_type"] = getattr(ev, "event_type", "UPSERT")
             try:
                 if requests.post(API_URL, json=pld, timeout=5).status_code == 200:
-                    ls[key], metrics["sent"] = curr_cmp, metrics["sent"] + 1
-                else: metrics["fail"] += 1
-            except requests.RequestException: metrics["fail"] += 1
-
-        if metrics["sent"]:
-            STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-            STATE_FILE.write_text(json.dumps(state, indent=2, sort_keys=True), "utf-8")
+                    metrics["sent"] += 1
+                else:
+                    metrics["fail"] += 1
+            except requests.RequestException:
+                metrics["fail"] += 1
 
         el = time.time() - t0
         log.info(f"Cycle {el:.1f}s | trk:{len(tracked)} " + " ".join(f"{k}:{v}" for k, v in metrics.items()))

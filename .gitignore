@@ -1,5 +1,6 @@
 security/*
 !security/generate_certs.sh
+.poller_state/
 
 .env
 

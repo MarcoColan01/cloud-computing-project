@@ -23,7 +23,7 @@
     </header>
 
     <main id="boards" class="boards">
-        {% for airport in airports %}
+       {% for airport in airports %}
         <section class="board" id="board-{{ airport }}" data-airport="{{ airport }}">
             <div class="board-head">
                 <div class="board-title">
@@ -68,16 +68,8 @@
                     <tr class="empty"><td colspan="7">Awaiting data…</td></tr>
                 </tbody>
             </table>
-
-            <div class="board-foot">
-                <span>{{ airport }}</span>
-                <span>·</span>
-                <span>DEPARTURES BOARD</span>
-                <span>·</span>
-                <span>AUTO-REFRESH</span>
-            </div>
         </section>
-        {% endfor %}
+        {% endfor %} 
     </main>
 </body>
 </html>

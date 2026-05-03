@@ -121,14 +121,14 @@ function renderDelta(delta) {
 function statusBadge(f) {
     const s = f.status || "UNKNOWN";
     switch (s) {
-        case "BOARDING":     return { label: "BOARDING",  cls: "boarding" };
-        case "LAST_CALL":    return { label: "LAST CALL", cls: "boarding" };
-        case "GATE_OPEN":    return { label: "GATE OPEN", cls: "boarding" };
-        case "GATE_CLOSED":  return { label: "GATE CLSD", cls: "late" };
-        case "DELAYED":      return { label: "DELAYED",   cls: "late" };
-        case "CANCELLED":    return { label: "CANCELLED", cls: "cancel" };
-        case "DIVERTED":     return { label: "DIVERTED",  cls: "late" };
-        case "DEPARTED":     return { label: "DEPARTED",  cls: "departed" };
+        case "BOARDING":     return { label: "BOARDING",   cls: "boarding boarding-flash" };
+        case "LAST_CALL":    return { label: "LAST CALL",  cls: "boarding boarding-flash" };
+        case "GATE_OPEN":    return { label: "GATE OPEN",  cls: "boarding" };
+        case "GATE_CLOSED":  return { label: "GATE CLOSE", cls: "gate-closed" };
+        case "DELAYED":      return { label: "DELAYED",    cls: "late" };
+        case "CANCELLED":    return { label: "CANCELLED",  cls: "cancel" };
+        case "DIVERTED":     return { label: "DIVERTED",   cls: "late" };
+        case "DEPARTED":     return { label: "DEPARTED",   cls: "departed" };
         default:
             if (typeof f.delay_minutes === "number" && f.delay_minutes >= 5) {
                 return { label: "DELAYED", cls: "late" };

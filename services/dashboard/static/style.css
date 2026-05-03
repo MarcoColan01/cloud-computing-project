@@ -3,15 +3,15 @@
     --panel-bg: #0c1428;
     --panel-border: #18233e;
     --text-main: #e2e8f0;
-    --text-muted: #64748b;
-    --text-dim: #475569;
+    --text-muted: #e2e8f0;     /* was #64748b — now matches text-main for readability */
+    --text-dim: #e2e8f0;       /* was #475569 — same reason */
     --accent: #38bdf8;
     --accent-bright: #5eead4;
     --warn: #fbbf24;
     --danger: #f87171;
     --ok: #4ade80;
     --boarding: #5eead4;
-    --departed: #475569;
+    --departed: #94a3b8;       /* DEPARTED stays dim-ish: visually it's "past" */
 }
 
 * { box-sizing: border-box; }
@@ -60,13 +60,13 @@ body {
 .brand-subtitle {
     margin-top: 0.2rem;
     font-size: 0.75rem;
-    color: var(--text-muted);
+    color: var(--text-main);
     letter-spacing: 0.18em;
 }
 
 .clock {
     text-align: right;
-    color: var(--text-muted);
+    color: var(--text-main);
     font-size: 0.75rem;
     letter-spacing: 0.18em;
 }
@@ -115,7 +115,7 @@ body {
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: var(--text-dim);
+    background: var(--text-main);
     align-self: center;
 }
 .status-dot.ok   { background: var(--ok);   box-shadow: 0 0 6px var(--ok); }
@@ -130,13 +130,13 @@ body {
 
 .airport-full {
     font-size: 0.75rem;
-    color: var(--text-muted);
+    color: var(--text-main);
     letter-spacing: 0.16em;
 }
 
 .board-clock {
     font-size: 0.75rem;
-    color: var(--text-muted);
+    color: var(--text-main);
     letter-spacing: 0.18em;
 }
 
@@ -154,7 +154,7 @@ body {
 .board-meta {
     margin-top: 0.4rem;
     font-size: 0.68rem;
-    color: var(--text-muted);
+    color: var(--text-main);
     letter-spacing: 0.22em;
 }
 
@@ -172,7 +172,7 @@ body {
 
 .stat-label {
     font-size: 0.65rem;
-    color: var(--text-muted);
+    color: var(--text-main);
     letter-spacing: 0.18em;
 }
 
@@ -187,7 +187,7 @@ body {
 .stat-unit {
     margin-left: 0.4rem;
     font-size: 0.85rem;
-    color: var(--text-muted);
+    color: var(--text-main);
 }
 
 /* ---------- Flights table ---------- */
@@ -199,7 +199,7 @@ body {
 
 .flights th {
     text-align: left;
-    color: var(--text-muted);
+    color: var(--text-main);
     font-weight: 500;
     font-size: 0.65rem;
     letter-spacing: 0.16em;
@@ -215,7 +215,13 @@ body {
 
 .flights tr:last-child td { border-bottom: none; }
 
-.flights .airline { color: var(--text-muted); max-width: 78px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flights .airline {
+    color: var(--text-main);
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 .flights .flight  { color: var(--accent); }
 .flights .dest    { color: var(--text-main); }
 .flights .time    { color: var(--text-main); font-variant-numeric: tabular-nums; }
@@ -223,31 +229,30 @@ body {
 .flights .est.late{ color: var(--warn); }
 .flights .gate    { color: var(--text-main); }
 
-.flights .info               { color: var(--text-muted); font-size: 0.7rem; letter-spacing: 0.06em; }
+.flights .info               { color: var(--text-main); font-size: 0.7rem; letter-spacing: 0.06em; }
 .flights .info.ontime        { color: var(--ok); }
 .flights .info.boarding      { color: var(--boarding); }
 .flights .info.late          { color: var(--warn); }
 .flights .info.cancel        { color: var(--danger); }
+.flights .info.gate-closed   { color: var(--danger); }
 .flights .info.departed      { color: var(--departed); }
+
+/* Pulse animation for the BOARDING status — mimics airport flip-board behaviour */
+.flights .info.boarding-flash {
+    animation: boarding-blink 1s steps(2, start) infinite;
+}
+
+@keyframes boarding-blink {
+    50% { opacity: 0; }
+}
 
 .flights tr.empty td {
     text-align: center;
-    color: var(--text-dim);
+    color: var(--text-main);
     padding: 1.5rem 0.4rem;
 }
 
-/* ---------- Board footer ---------- */
-.board-foot {
-    margin-top: 0.8rem;
-    padding-top: 0.6rem;
-    border-top: 1px solid var(--panel-border);
-    color: var(--text-dim);
-    font-size: 0.65rem;
-    letter-spacing: 0.18em;
-    display: flex;
-    gap: 0.5rem;
-}
-
+/* Delta time difference (EST vs SCHED) */
 .delta-late {
     color: var(--danger);
     font-weight: 500;
@@ -258,8 +263,4 @@ body {
     color: var(--ok);
     font-weight: 500;
     margin-left: 0.3rem;
-}
-
-.flights .airline {
-    max-width: 140px;
 }
