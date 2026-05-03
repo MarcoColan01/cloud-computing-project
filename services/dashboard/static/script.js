@@ -1,7 +1,8 @@
+// Airport metadata: full name + local timezone for displaying flight times
 const AIRPORT_META = {
-    AMS: { full: "Amsterdam Schiphol", city: "Amsterdam", tz: "Europe/Amsterdam"},
-    HEL: { full: "Helsinki-Vantaa", city: "Helsinki", tz: "Europe/Helsinki"},
-    AMS: { full: "Oslo Gardermoen", city: "Oslo", tz: "Europe/Oslo"},
+    AMS: { full: "Amsterdam Schiphol", city: "Amsterdam", tz: "Europe/Amsterdam" },
+    HEL: { full: "Helsinki-Vantaa",    city: "Helsinki",  tz: "Europe/Helsinki"  },
+    OSL: { full: "Oslo Gardermoen",    city: "Oslo",      tz: "Europe/Oslo"      }
 };
 
 fetch("/snapshot")
@@ -11,17 +12,16 @@ fetch("/snapshot")
 
 const es = new EventSource("/stream");
 es.onmessage = (evt) => {
-    try{
+    try {
         const payload = JSON.parse(evt.data);
         renderAll(payload);
-    }catch (e){
+    } catch (e) {
         console.error("bad SSE payload", e);
     }
 };
+es.onerror = () => console.warn("SSE connection lost, will retry…");
 
-es.onerror = () => console.warn("SSE connection lost, will retry...");
-
-function renderAll(payload){
+function renderAll(payload) {
     const airports = (payload && payload.airports) || {};
     Object.keys(AIRPORT_META).forEach(code => {
         const data = airports[code] || { flights: [], stats: {} };
@@ -29,8 +29,9 @@ function renderAll(payload){
     });
 }
 
-function renderAirport(code, data){
+function renderAirport(code, data) {
     const meta = AIRPORT_META[code];
+
     setText(`full-${code}`, meta.full.toUpperCase());
     setText(`meta-city-${code}`, meta.city);
 
@@ -45,45 +46,80 @@ function renderAirport(code, data){
     setText(`stat-delay-${code}`, stats.avg_delay_minutes != null
         ? String(Math.round(stats.avg_delay_minutes))
         : "—");
-    
-        const tbody = document.getElementById(`flights-${code}`);
-        if (!tbody) return;
-        if (!haveData) {
-            tbody.innerHTML = `<tr class="empty"><td colspan="7">Awaiting data…</td></tr>`;
-            return;
-        }
-        tbody.innerHTML = data.flights.map(f => renderFlightRow(f, meta.tz)).join("");
+
+    const tbody = document.getElementById(`flights-${code}`);
+    if (!tbody) return;
+    if (!haveData) {
+        tbody.innerHTML = `<tr class="empty"><td colspan="7">Awaiting data…</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = data.flights.map(f => renderFlightRow(f, meta.tz)).join("");
 }
 
 function renderFlightRow(f, tz) {
     const sched = formatTime(f.scheduled_departure, tz);
-    const est = formatTime(f.estimated_departure || f.actual_departure || f.scheduled_departure, tz);
+    const estIso = f.estimated_departure || f.actual_departure || f.scheduled_departure;
+    const est = formatTime(estIso, tz);
     const gate = f.gate || "—";
-    const dest = (f.destination_iata || "").toUpperCase();
-    const airlineLabel = f.airline_name || f.airline_iata || "—";
+
+    // Destination: prefer city; fall back to IATA
+    const dest = f.destination_city || f.destination_iata || "—";
+
+    // Airline: prefer full name; fall back to IATA
+    const airlineLabel = f.airline_name_full || f.airline_iata || "—";
+
     const flight = f.flight_code || "—";
     const { label, cls } = statusBadge(f);
 
-    // Highlight EST in amber when delayed, white when on time
-    const estDelayed = f.delay_minutes != null && f.delay_minutes >= 5;
-    const estClass = estDelayed ? "est late" : "est";
+    // Compute delta in minutes between EST and SCHED.
+    // Prefer the server-provided delay_minutes; fall back to local computation.
+    const delta = computeDelta(f);
+    const deltaHtml = renderDelta(delta);
+
+    // EST color: amber if late by >= 1 minute, normal otherwise
+    const estClass = (delta != null && delta >= 1) ? "est late" : "est";
 
     return `
         <tr>
-            <td class="airline">${escapeHtml(airlineLabel)}</td>
+            <td class="airline" title="${escapeHtml(airlineLabel)}">${escapeHtml(airlineLabel)}</td>
             <td class="flight">${escapeHtml(flight)}</td>
-            <td class="dest">${escapeHtml(dest)}</td>
+            <td class="dest" title="${escapeHtml(f.destination_name_full || dest)}">${escapeHtml(dest)}</td>
             <td class="time">${sched}</td>
-            <td class="${estClass}">${est}</td>
+            <td class="${estClass}">${est}${deltaHtml}</td>
             <td class="gate">${escapeHtml(gate)}</td>
             <td class="info ${cls}">${label}</td>
         </tr>
     `;
 }
 
+function computeDelta(f) {
+    // Backend already computed delay_minutes from scheduled vs estimated/actual.
+    // Trust it when present.
+    if (typeof f.delay_minutes === "number") {
+        return f.delay_minutes;
+    }
+    // Fallback: compute it client-side
+    if (!f.scheduled_departure) return null;
+    const estIso = f.estimated_departure || f.actual_departure;
+    if (!estIso) return null;
+    try {
+        const sched = new Date(f.scheduled_departure).getTime();
+        const est = new Date(estIso).getTime();
+        return Math.round((est - sched) / 60000);
+    } catch {
+        return null;
+    }
+}
+
+function renderDelta(delta) {
+    if (delta == null || delta === 0) return "";
+    const cls = delta > 0 ? "delta-late" : "delta-early";
+    const sign = delta > 0 ? "+" : "−";
+    return ` <span class="${cls}">(${sign}${Math.abs(delta)})</span>`;
+}
+
 function statusBadge(f) {
     const s = f.status || "UNKNOWN";
-    // Map server-side status to compact UI label + CSS class
     switch (s) {
         case "BOARDING":     return { label: "BOARDING",  cls: "boarding" };
         case "LAST_CALL":    return { label: "LAST CALL", cls: "boarding" };
@@ -94,12 +130,13 @@ function statusBadge(f) {
         case "DIVERTED":     return { label: "DIVERTED",  cls: "late" };
         case "DEPARTED":     return { label: "DEPARTED",  cls: "departed" };
         default:
-            if (f.delay_minutes != null && f.delay_minutes >= 5) {
+            if (typeof f.delay_minutes === "number" && f.delay_minutes >= 5) {
                 return { label: "DELAYED", cls: "late" };
             }
             return { label: "ON TIME", cls: "ontime" };
     }
 }
+
 
 function formatTime(iso, tz) {
     if (!iso) return "—";
@@ -135,7 +172,6 @@ function tickClock() {
     setText("clock-date", date);
     setText("clock-time", time);
 
-    // Per-board clocks: each shows local time of that airport
     Object.keys(AIRPORT_META).forEach(code => {
         const t = now.toLocaleTimeString("en-GB", {
             timeZone: AIRPORT_META[code].tz, hour12: false

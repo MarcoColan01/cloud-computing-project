@@ -1,19 +1,3 @@
-"""
-Flight Flow - Dashboard backend.
-
-Flask app that:
-  - consumes flight.telemetry (live flight events) into in-memory state
-  - consumes flight.stats (aggregated counters) into in-memory state
-  - serves the HTML page and a Server-Sent Events stream
-
-The Kafka consumers use a unique random group_id per dashboard instance so
-that each replica receives ALL messages (broadcast pattern), not a partition
-slice. This is the right semantics for a dashboard: every screen must see
-every flight.
-
-Adapted from Galliano's WeatherFlow dashboard backend.
-"""
-
 import os
 import json
 import threading
@@ -23,10 +7,11 @@ from datetime import datetime, timezone
 
 from flask import Flask, Response, render_template
 from confluent_kafka import Consumer
+import airportsdata
 
-# ----------------------------------------------------------------------
-# Config
-# ----------------------------------------------------------------------
+from airline_codes import airline_name
+
+
 BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "kafka-1:9093,kafka-2:9095,kafka-3:9097")
 TOPIC_TELEMETRY = os.getenv("TOPIC_TELEMETRY", "flight.telemetry")
 TOPIC_STATS = os.getenv("TOPIC_STATS", "flight.stats")
@@ -38,22 +23,21 @@ GROUP_STATS = os.getenv(
     "DASHBOARD_STATS_GROUP", f"dashboard-stats-{uuid.uuid4()}"
 )
 
-# Airports we render on the board (codes match what pollers publish)
 AIRPORTS = ["AMS", "HEL", "OSL"]
 BOARD_SIZE = int(os.getenv("BOARD_SIZE", "20"))
 
 webapp = Flask(__name__, static_folder="static", template_folder="template")
 
-# ----------------------------------------------------------------------
-# In-memory state (thread-safe)
-# ----------------------------------------------------------------------
+
+IATA_AIRPORTS = airportsdata.load("IATA")
+print(f"[dashboard] airportsdata loaded: {len(IATA_AIRPORTS)} entries", flush=True)
+
+
 state_lock = threading.Lock()
 
-# Per-airport state. flights is keyed by (flight_code, scheduled_departure)
-# so that successive updates of the same flight overwrite the same entry.
 state = {
     code: {
-        "flights": {},        # (flight_code, sched) -> flight dict
+        "flights": {},
         "stats": {
             "departed_today": 0,
             "avg_delay_minutes": None,
@@ -63,7 +47,6 @@ state = {
     for code in AIRPORTS
 }
 
-# Output queue: SSE clients drain this. One queue per connected client.
 sse_clients: list[queue.Queue] = []
 sse_clients_lock = threading.Lock()
 
@@ -86,11 +69,33 @@ def kafka_ssl_base() -> dict:
     }
 
 
-# ----------------------------------------------------------------------
-# State manipulation helpers
-# ----------------------------------------------------------------------
+def enrich_event(event: dict) -> dict:
+    """Add display-friendly fields without mutating the original."""
+    enriched = dict(event)
+
+    # Airline full name
+    iata = event.get("airline_iata")
+    full_airline = airline_name(iata)
+    if full_airline:
+        enriched["airline_name_full"] = full_airline
+    else:
+        # Fallback: keep whatever was already in airline_name (often the IATA code)
+        enriched["airline_name_full"] = event.get("airline_name") or iata or "—"
+
+    # Destination full name + city
+    dest_iata = (event.get("destination_iata") or "").upper()
+    info = IATA_AIRPORTS.get(dest_iata) if dest_iata else None
+    if info:
+        enriched["destination_name_full"] = info.get("name") or ""
+        enriched["destination_city"] = info.get("city") or dest_iata
+    else:
+        enriched["destination_name_full"] = event.get("destination_name") or ""
+        enriched["destination_city"] = dest_iata or "—"
+
+    return enriched
+
+
 def upsert_flight(event: dict) -> None:
-    """Insert or update one flight in the per-airport board."""
     airport = event.get("airport")
     if airport not in state:
         return
@@ -100,12 +105,13 @@ def upsert_flight(event: dict) -> None:
         return
     key = f"{fc}|{sd}"
 
+    enriched = enrich_event(event)
+
     with state_lock:
-        # If poller signaled a deletion (e.g. flight has departed), remove it
         if event.get("event_type") == "DELETE":
             state[airport]["flights"].pop(key, None)
         else:
-            state[airport]["flights"][key] = event
+            state[airport]["flights"][key] = enriched
 
 
 def update_stats(event: dict) -> None:
@@ -121,17 +127,10 @@ def update_stats(event: dict) -> None:
 
 
 def board_snapshot() -> dict:
-    """
-    Build the dashboard payload:
-      - for each airport, take the BOARD_SIZE flights with the earliest
-        scheduled_departure that are not in the past
-    Returns the full state already shaped for the UI.
-    """
     now_utc = datetime.now(timezone.utc)
     out = {"airports": {}}
     with state_lock:
         for airport, bucket in state.items():
-            # Filter flights still relevant (scheduled in the future or just departed)
             flights = []
             for fl in bucket["flights"].values():
                 sd = fl.get("scheduled_departure")
@@ -141,7 +140,6 @@ def board_snapshot() -> dict:
                     sd_dt = datetime.fromisoformat(sd.replace("Z", "+00:00"))
                 except ValueError:
                     continue
-                # Tolerate a small lookback so just-departed flights linger briefly
                 if (sd_dt - now_utc).total_seconds() > -1800:
                     flights.append(fl)
             flights.sort(key=lambda f: f["scheduled_departure"])
@@ -153,7 +151,6 @@ def board_snapshot() -> dict:
 
 
 def push_to_clients(payload: str) -> None:
-    """Fan-out a JSON string to every connected SSE client."""
     with sse_clients_lock:
         clients = list(sse_clients)
     for q in clients:
@@ -164,14 +161,10 @@ def push_to_clients(payload: str) -> None:
 
 
 def broadcast_state() -> None:
-    """Serialize the current state and send it to all SSE clients."""
     payload = json.dumps(board_snapshot())
     push_to_clients(payload)
 
 
-# ----------------------------------------------------------------------
-# Background Kafka consumers (one thread each)
-# ----------------------------------------------------------------------
 def telemetry_loop() -> None:
     cfg = {
         **kafka_ssl_base(),
@@ -242,9 +235,6 @@ def before():
     start_kafka_threads()
 
 
-# ----------------------------------------------------------------------
-# Routes
-# ----------------------------------------------------------------------
 @webapp.get("/healthcheck")
 def health():
     return {
@@ -263,20 +253,17 @@ def index():
 
 @webapp.get("/snapshot")
 def snapshot():
-    """One-shot REST endpoint: useful for the very first paint of the page."""
     return board_snapshot()
 
 
 @webapp.get("/stream")
 def stream():
-    """Server-Sent Events: pushes a fresh snapshot whenever Kafka updates state."""
     client_q: queue.Queue = queue.Queue(maxsize=64)
     with sse_clients_lock:
         sse_clients.append(client_q)
 
     def event_stream():
         try:
-            # Send the current snapshot immediately on connect
             yield f"data: {json.dumps(board_snapshot())}\n\n"
             while True:
                 payload = client_q.get()

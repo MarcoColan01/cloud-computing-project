@@ -247,3 +247,19 @@ body {
     display: flex;
     gap: 0.5rem;
 }
+
+.delta-late {
+    color: var(--danger);
+    font-weight: 500;
+    margin-left: 0.3rem;
+}
+
+.delta-early {
+    color: var(--ok);
+    font-weight: 500;
+    margin-left: 0.3rem;
+}
+
+.flights .airline {
+    max-width: 140px;
+}
