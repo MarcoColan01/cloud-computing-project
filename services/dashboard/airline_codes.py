@@ -7,6 +7,7 @@ AIRLINES: dict[str, str] = {
     "MU": "China Eastern",
     "CZ": "China Southern",
     "VS": "Virgin Atlantic",
+    "XQ": "SunExpress",
 
     "LH": "Lufthansa",
     "LX": "SWISS",

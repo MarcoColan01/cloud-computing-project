@@ -153,7 +153,7 @@ function renderFlightRow(f, tz) {
 
     const fkey = makeKey(f);
     const warningCell = flashingFlights.has(fkey)
-        ? `<td class="warn-cell"><span class="warn-flash">"diocane"</span></td>`
+        ? `<td class="warn-cell"><span class="warn-flash">CHANGES!!!</span></td>`
         : `<td class="warn-cell"></td>`;
 
     return `
