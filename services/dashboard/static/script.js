@@ -1,5 +1,6 @@
-const previousFlightState = {};   
-const flashTimers = {};           
+const previousFlightState = {};
+const flashTimers = {};
+const flashingFlights = new Set();
 
 const FLASH_DURATION_MS = 5000;
 const WATCH_FIELDS = ["gate", "estimated_departure", "status"];
@@ -12,13 +13,25 @@ const AIRPORT_META = {
 
 fetch("/snapshot")
     .then(r => r.json())
-    .then(renderAll)
+    .then(payload => {
+        // First paint: just record state, do not flash
+        seedInitialState(payload);
+        renderAll(payload);
+    })
     .catch(err => console.error("snapshot fetch failed:", err));
 
 const es = new EventSource("/stream");
+let firstSseSkipped = false;
 es.onmessage = (evt) => {
     try {
         const payload = JSON.parse(evt.data);
+        // The SSE stream sends a full snapshot on connect; skip the first one
+        // because /snapshot already seeded the state.
+        if (!firstSseSkipped) {
+            firstSseSkipped = true;
+            return;
+        }
+        detectChanges(payload);
         renderAll(payload);
     } catch (e) {
         console.error("bad SSE payload", e);
@@ -26,7 +39,69 @@ es.onmessage = (evt) => {
 };
 es.onerror = () => console.warn("SSE connection lost, will retry…");
 
+function seedInitialState(payload) {
+    const airports = (payload && payload.airports) || {};
+    Object.values(airports).forEach(data => {
+        (data.flights || []).forEach(f => {
+            const fkey = makeKey(f);
+            previousFlightState[fkey] = snapshotFields(f);
+        });
+    });
+}
+
+function detectChanges(payload) {
+    const airports = (payload && payload.airports) || {};
+    Object.values(airports).forEach(data => {
+        (data.flights || []).forEach(f => {
+            const fkey = makeKey(f);
+            const prev = previousFlightState[fkey];
+            if (!prev) {
+                previousFlightState[fkey] = snapshotFields(f);
+                return;
+            }
+            let changed = false;
+            for (const field of WATCH_FIELDS) {
+                if (prev[field] !== f[field]) {
+                    changed = true;
+                    break;
+                }
+            }
+            if (changed) {
+                triggerFlash(fkey);
+                previousFlightState[fkey] = snapshotFields(f);
+            }
+        });
+    });
+}
+
+function triggerFlash(fkey) {
+    flashingFlights.add(fkey);
+    if (flashTimers[fkey]) clearTimeout(flashTimers[fkey]);
+    flashTimers[fkey] = setTimeout(() => {
+        flashingFlights.delete(fkey);
+        delete flashTimers[fkey];
+        // Re-render to actually remove the emoji from the visible row
+        renderAllFromCache();
+    }, FLASH_DURATION_MS);
+}
+
+let lastPayload = null;
+function renderAllFromCache() {
+    if (lastPayload) renderAll(lastPayload);
+}
+
+function makeKey(f) {
+    return `${f.airport}|${f.flight_code}|${f.scheduled_departure}`;
+}
+
+function snapshotFields(f) {
+    const o = {};
+    for (const field of WATCH_FIELDS) o[field] = f[field];
+    return o;
+}
+
 function renderAll(payload) {
+    lastPayload = payload;
     const airports = (payload && payload.airports) || {};
     Object.keys(AIRPORT_META).forEach(code => {
         const data = airports[code] || { flights: [], stats: {} };
@@ -55,7 +130,7 @@ function renderAirport(code, data) {
     const tbody = document.getElementById(`flights-${code}`);
     if (!tbody) return;
     if (!haveData) {
-        tbody.innerHTML = `<tr class="empty"><td colspan="7">Awaiting data…</td></tr>`;
+        tbody.innerHTML = `<tr class="empty"><td colspan="8">Awaiting data…</td></tr>`;
         return;
     }
     tbody.innerHTML = data.flights.map(f => renderFlightRow(f, meta.tz)).join("");
@@ -76,41 +151,10 @@ function renderFlightRow(f, tz) {
     const deltaHtml = renderDelta(delta);
     const estClass = (delta != null && delta >= 1) ? "est late" : "est";
 
-    // Detect changes against previous snapshot
-    const fkey = `${f.airport}|${f.flight_code}|${f.scheduled_departure}`;
-    const prev = previousFlightState[fkey];
-    let isFlashing = false;
-    if (prev) {
-        for (const field of WATCH_FIELDS) {
-            if (prev[field] !== f[field]) {
-                isFlashing = true;
-                break;
-            }
-        }
-    }
-    // Update previous state
-    previousFlightState[fkey] = {
-        gate: f.gate,
-        estimated_departure: f.estimated_departure,
-        status: f.status,
-    };
-
-    // If a flash should start, also schedule its end
-    let warningCell;
-    if (isFlashing) {
-        warningCell = `<td class="warn-cell" data-flight="${escapeHtml(fkey)}"><span class="warn-flash">⚠️</span></td>`;
-        // Clear any existing timer and schedule the removal
-        if (flashTimers[fkey]) clearTimeout(flashTimers[fkey]);
-        flashTimers[fkey] = setTimeout(() => {
-            const cells = document.querySelectorAll(`.warn-cell[data-flight="${cssEscape(fkey)}"] .warn-flash`);
-            cells.forEach(el => el.remove());
-            delete flashTimers[fkey];
-        }, FLASH_DURATION_MS);
-    } else {
-        // Keep existing warning if a timer is still active for this flight
-        const stillActive = flashTimers[fkey] != null;
-        warningCell = `<td class="warn-cell" data-flight="${escapeHtml(fkey)}">${stillActive ? '<span class="warn-flash">⚠️</span>' : ''}</td>`;
-    }
+    const fkey = makeKey(f);
+    const warningCell = flashingFlights.has(fkey)
+        ? `<td class="warn-cell"><span class="warn-flash">⚠️</span></td>`
+        : `<td class="warn-cell"></td>`;
 
     return `
         <tr>
@@ -126,18 +170,10 @@ function renderFlightRow(f, tz) {
     `;
 }
 
-// Helper to safely use a key as CSS attribute selector
-function cssEscape(s) {
-    return String(s).replace(/(["\\])/g, '\\$1');
-}
-
 function computeDelta(f) {
-    // Backend already computed delay_minutes from scheduled vs estimated/actual.
-    // Trust it when present.
     if (typeof f.delay_minutes === "number") {
         return f.delay_minutes;
     }
-    // Fallback: compute it client-side
     if (!f.scheduled_departure) return null;
     const estIso = f.estimated_departure || f.actual_departure;
     if (!estIso) return null;
@@ -175,7 +211,6 @@ function statusBadge(f) {
             return { label: "ON TIME", cls: "ontime" };
     }
 }
-
 
 function formatTime(iso, tz) {
     if (!iso) return "—";
