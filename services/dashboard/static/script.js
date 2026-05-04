@@ -201,7 +201,7 @@ function statusBadge(f) {
         case "GATE_OPEN":    return { label: "GATE OPEN",  cls: "boarding" };
         case "GATE_CLOSED":  return { label: "GATE CLOSE", cls: "gate-closed" };
         case "DELAYED":      return { label: "DELAYED",    cls: "late" };
-        case "CANCELLED":    return { label: "CANCELLED",  cls: "cancel" };
+        case "CANCELLED":    return { label: "CANCELLED",  cls: "departed" };
         case "DIVERTED":     return { label: "DIVERTED",   cls: "late" };
         case "DEPARTED":     return { label: "DEPARTED",   cls: "departed" };
         default:
