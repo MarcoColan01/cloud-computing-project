@@ -135,10 +135,44 @@ class StatsState:
                 return
             bucket["departed_keys"].add(key)
 
-            delay = event.get("delay_minutes")
-            if isinstance(delay, (int, float)):
-                bucket["delay_sum"] += int(delay)
+            # Compute delay with cascading fallback:
+            # 1. delay_minutes from poller (already computed if API gave est/actual)
+            # 2. compute from actual_departure - scheduled_departure
+            # 3. compute from estimated_departure - scheduled_departure
+            # 4. compute from observed_at_utc - scheduled_departure (system observation)
+            delay = self._compute_delay_minutes(event)
+            if delay is not None:
+                bucket["delay_sum"] += delay
                 bucket["delay_count"] += 1
+
+    @staticmethod
+    def _compute_delay_minutes(event: dict) -> int | None:
+        """Compute delay in minutes using a cascade of timestamps."""
+        # First trust what the poller already computed
+        delay = event.get("delay_minutes")
+        if isinstance(delay, (int, float)):
+            return int(delay)
+
+        sched = event.get("scheduled_departure")
+        if not sched:
+            return None
+        try:
+            sched_dt = datetime.fromisoformat(sched.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+
+        # Fallback chain: actual → estimated → observed_at_utc
+        for field in ("actual_departure", "estimated_departure", "observed_at_utc"):
+            val = event.get(field)
+            if not val:
+                continue
+            try:
+                ref_dt = datetime.fromisoformat(val.replace("Z", "+00:00"))
+                return int((ref_dt - sched_dt).total_seconds() / 60)
+            except ValueError:
+                continue
+
+        return None
 
     def snapshot(self) -> list[dict]:
         """Return one stats dict per airport currently tracked."""

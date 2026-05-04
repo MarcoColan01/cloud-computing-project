@@ -41,6 +41,7 @@ class FlightEvent(BaseModel):
     flight_code: str
     airline_iata: str
     airline_name: str
+    observed_at_utc: Optional[str] = None
     event_type: EventType = "UPSERT"
     scheduled_departure: datetime
     estimated_departure: Optional[datetime] = None

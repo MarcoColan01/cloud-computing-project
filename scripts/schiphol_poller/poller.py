@@ -1,6 +1,6 @@
 import logging, os, sys, time
 from dataclasses import fields, is_dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
@@ -81,10 +81,12 @@ def run():
             curr = cands.get(k)
             if not curr and dt_parse(prev.scheduled_departure) < ref_now - timedelta(minutes=GRACE_MIN):
                 prev.status, prev.event_type = "DEPARTED", "DELETE"
+                prev.observed_at_utc = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
                 consider.append(prev); del tracked[k]; metrics["deleted"] += 1
             elif curr:
                 if getattr(curr, "status", None) == "DEPARTED" or (curr.actual_departure and dt_parse(curr.actual_departure) <= ref_now):
                     curr.status, curr.event_type = "DEPARTED", "DELETE"
+                    curr.observed_at_utc = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
                     consider.append(curr); del tracked[k]; metrics["deleted"] += 1
                 else:
                     curr.event_type = "UPSERT"; tracked[k] = curr; consider.append(curr); metrics["updated"] += 1
@@ -97,6 +99,8 @@ def run():
         for ev in consider:
             pld = ev.to_dict()
             pld["event_type"] = getattr(ev, "event_type", "UPSERT")
+            if hasattr(ev, "observed_at_utc"):
+                pld["observed_at_utc"] = ev.observed_at_utc
             try:
                 if requests.post(API_URL, json=pld, timeout=5).status_code == 200:
                     metrics["sent"] += 1

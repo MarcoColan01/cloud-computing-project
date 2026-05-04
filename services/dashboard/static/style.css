@@ -264,3 +264,19 @@ body {
     font-weight: 500;
     margin-left: 0.3rem;
 }
+
+.warn-cell {
+    width: 28px;
+    text-align: center;
+    padding: 0.55rem 0.2rem;
+}
+
+.warn-flash {
+    display: inline-block;
+    font-size: 1rem;
+    animation: warn-blink 0.5s steps(2, start) infinite;
+}
+
+@keyframes warn-blink {
+    50% { opacity: 0; }
+}

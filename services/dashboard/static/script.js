@@ -1,4 +1,9 @@
-// Airport metadata: full name + local timezone for displaying flight times
+const previousFlightState = {};   
+const flashTimers = {};           
+
+const FLASH_DURATION_MS = 5000;
+const WATCH_FIELDS = ["gate", "estimated_departure", "status"];
+
 const AIRPORT_META = {
     AMS: { full: "Amsterdam Schiphol", city: "Amsterdam", tz: "Europe/Amsterdam" },
     HEL: { full: "Helsinki-Vantaa",    city: "Helsinki",  tz: "Europe/Helsinki"  },
@@ -62,22 +67,50 @@ function renderFlightRow(f, tz) {
     const est = formatTime(estIso, tz);
     const gate = f.gate || "—";
 
-    // Destination: prefer city; fall back to IATA
     const dest = f.destination_city || f.destination_iata || "—";
-
-    // Airline: prefer full name; fall back to IATA
     const airlineLabel = f.airline_name_full || f.airline_iata || "—";
-
     const flight = f.flight_code || "—";
     const { label, cls } = statusBadge(f);
 
-    // Compute delta in minutes between EST and SCHED.
-    // Prefer the server-provided delay_minutes; fall back to local computation.
     const delta = computeDelta(f);
     const deltaHtml = renderDelta(delta);
-
-    // EST color: amber if late by >= 1 minute, normal otherwise
     const estClass = (delta != null && delta >= 1) ? "est late" : "est";
+
+    // Detect changes against previous snapshot
+    const fkey = `${f.airport}|${f.flight_code}|${f.scheduled_departure}`;
+    const prev = previousFlightState[fkey];
+    let isFlashing = false;
+    if (prev) {
+        for (const field of WATCH_FIELDS) {
+            if (prev[field] !== f[field]) {
+                isFlashing = true;
+                break;
+            }
+        }
+    }
+    // Update previous state
+    previousFlightState[fkey] = {
+        gate: f.gate,
+        estimated_departure: f.estimated_departure,
+        status: f.status,
+    };
+
+    // If a flash should start, also schedule its end
+    let warningCell;
+    if (isFlashing) {
+        warningCell = `<td class="warn-cell" data-flight="${escapeHtml(fkey)}"><span class="warn-flash">⚠️</span></td>`;
+        // Clear any existing timer and schedule the removal
+        if (flashTimers[fkey]) clearTimeout(flashTimers[fkey]);
+        flashTimers[fkey] = setTimeout(() => {
+            const cells = document.querySelectorAll(`.warn-cell[data-flight="${cssEscape(fkey)}"] .warn-flash`);
+            cells.forEach(el => el.remove());
+            delete flashTimers[fkey];
+        }, FLASH_DURATION_MS);
+    } else {
+        // Keep existing warning if a timer is still active for this flight
+        const stillActive = flashTimers[fkey] != null;
+        warningCell = `<td class="warn-cell" data-flight="${escapeHtml(fkey)}">${stillActive ? '<span class="warn-flash">⚠️</span>' : ''}</td>`;
+    }
 
     return `
         <tr>
@@ -88,8 +121,14 @@ function renderFlightRow(f, tz) {
             <td class="${estClass}">${est}${deltaHtml}</td>
             <td class="gate">${escapeHtml(gate)}</td>
             <td class="info ${cls}">${label}</td>
+            ${warningCell}
         </tr>
     `;
+}
+
+// Helper to safely use a key as CSS attribute selector
+function cssEscape(s) {
+    return String(s).replace(/(["\\])/g, '\\$1');
 }
 
 function computeDelta(f) {
