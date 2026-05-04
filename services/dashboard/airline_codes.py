@@ -1,7 +1,7 @@
 AIRLINES: dict[str, str] = {
     "KL": "KLM",
     "AF": "Air France",
-    "DL": "Delta Air Lines",
+    "DL": "Delta",
     "AZ": "ITA Airways",
     "KE": "Korean Air",
     "MU": "China Eastern",
@@ -20,6 +20,7 @@ AIRLINES: dict[str, str] = {
     "SQ": "Singapore Airlines",
     "TG": "Thai Airways",
     "EW": "Eurowings",
+    "EI": "Air Lingus",
 
     "BA": "British Airways",
     "IB": "Iberia",
