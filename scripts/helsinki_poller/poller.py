@@ -200,8 +200,17 @@ def run():
                 prev.observed_at_utc = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
                 consider.append(prev); del tracked[k]; metrics["deleted"] += 1
             elif curr:
-                if getattr(curr, "status", None) == "DEPARTED" or (curr.actual_departure and dt_parse(curr.actual_departure) <= ref_now):
+                curr_status = getattr(curr, "status", None)
+                departed = curr_status == "DEPARTED" or (
+                    curr.actual_departure and dt_parse(curr.actual_departure) <= ref_now
+                )
+                if departed:
                     curr.status, curr.event_type = "DEPARTED", "DELETE"
+                    curr.observed_at_utc = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+                    consider.append(curr); del tracked[k]; metrics["deleted"] += 1
+                elif curr_status == "CANCELLED":
+                    
+                    curr.event_type = "DELETE"
                     curr.observed_at_utc = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
                     consider.append(curr); del tracked[k]; metrics["deleted"] += 1
                 else:
@@ -209,7 +218,8 @@ def run():
 
         for k, ev in sorted(cands.items(), key=lambda x: dt_parse(x[1].scheduled_departure)):
             if len(tracked) >= BOARD_SIZE: break
-            if k not in tracked and dt_parse(ev.scheduled_departure) >= ref_now and getattr(ev, "status", None) != "DEPARTED":
+            if k not in tracked and dt_parse(ev.scheduled_departure) >= ref_now \
+               and getattr(ev, "status", None) not in ("DEPARTED", "CANCELLED"):
                 ev.event_type = "UPSERT"; tracked[k] = ev; consider.append(ev); metrics["added"] += 1
 
         for ev in consider:
